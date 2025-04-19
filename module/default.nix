@@ -67,8 +67,15 @@ let
 
     # Cleanup symlinks
     for symlink in ''${symlinks[@]}; do
-      if [ ! "$(readlink "$symlink")" == "$path" ]; then
-        echo "${prefix}Not removing symlink $symlink as it does not point to secret."
+      if [ -L "$symlink" ]; then
+        link_target=$(readlink "$symlink")
+        path_expanded=$(eval echo "$path")
+        if [ "$link_target" != "$path_expanded" ]; then
+          echo "${prefix}Not removing symlink $symlink as it does not point to secret."
+          continue
+        fi
+      else
+        echo "${prefix}Not removing $symlink as it is not a symlink."
         continue
       fi
       echo "${prefix}Removing symlink $symlink..."
@@ -78,11 +85,12 @@ let
 
     # Cleanup copies
     for copy in ''${copies[@]}; do
-      if [ ! -f $path ]; then
+      path_expanded=$(eval echo "$path")
+      if [ ! -f "$path_expanded" ]; then
         echo "${prefix}Not removing copied file $copy because secret does not exist so can't verify wasn't modified."
         continue
       fi
-      if ! cmp -s "$copy" "$path"; then
+      if ! cmp -s "$copy" "$path_expanded"; then
         echo "${prefix}Not removing copied file $copy because it was modified."
         continue
       fi
@@ -92,13 +100,14 @@ let
     done
 
     # Cleanup decrypted secret
-    if [ ! -f "$path" ]; then
-      echo "${prefix}Not removing secret file $path because does not exist."
+    path_expanded=$(eval echo "$path")
+    if [ ! -f "$path_expanded" ]; then
+      echo "${prefix}Not removing secret file $path_expanded because does not exist."
       continue
     else
-      echo "${prefix}Removing secret file $path..."
-      rm "$path"
-      rmdir --ignore-fail-on-non-empty --parents "$(dirname "$path")"
+      echo "${prefix}Removing secret file $path_expanded..."
+      rm "$path_expanded"
+      rmdir --ignore-fail-on-non-empty --parents "$(dirname "$path_expanded")"
     fi
   '';
 
@@ -150,8 +159,8 @@ let
         "s/\$UID/$(id -u)/g" |
       while IFS=$"\n" read -r c; do
         path=$(echo "$c" | ${jq} --raw-output '.path')
-        symlinks=$(echo "$c" | ${jq} --raw-output '.symlinks[]')
-        copies=$(echo "$c" | ${jq} --raw-output '.copies[]')
+        symlinks=($(echo "$c" | ${jq} --raw-output '.symlinks[]' 2>/dev/null || echo ""))
+        copies=($(echo "$c" | ${jq} --raw-output '.copies[]' 2>/dev/null || echo ""))
 
         ${cleanupSecret "[homeage] "}
       done
